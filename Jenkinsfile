@@ -7,6 +7,7 @@ pipeline {
         K8S_NAMESPACE = 'ecommerce'
         DEPLOY_NAME   = 'shopease'
         CONTAINER     = 'shopease'
+        KUBECONFIG    = '/var/lib/jenkins/.kube/config'   // ADD THIS LINE
     }
 
     stages {
