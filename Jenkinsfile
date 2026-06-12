@@ -2,17 +2,19 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY = 'sanjanadas'
-        IMAGE_NAME = 'shopease'
+        REGISTRY      = 'sanjanadas'
+        IMAGE_NAME    = 'shopease'
         K8S_NAMESPACE = 'ecommerce'
-        DEPLOYMENT_NAME = 'shopease'
-        CONTAINER_NAME = 'shopease'
+        DEPLOY_NAME   = 'shopease'
+        CONTAINER     = 'shopease'
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Checkout Code') {
             steps {
                 checkout scm
+                echo "Code checked out from GitHub"
             }
         }
 
@@ -20,20 +22,20 @@ pipeline {
             steps {
                 script {
                     env.APP_VERSION = readFile('active-version.txt').trim()
-                    env.IMAGE_TAG = "${env.APP_VERSION}-${env.BUILD_NUMBER}"
-                    env.FULL_IMAGE = "${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
+                    env.IMAGE_TAG   = "${env.APP_VERSION}-build-${env.BUILD_NUMBER}"
+                    env.FULL_IMAGE  = "${env.REGISTRY}/${env.IMAGE_NAME}:${env.IMAGE_TAG}"
 
-                    echo "App version: ${env.APP_VERSION}"
-                    echo "Image: ${env.FULL_IMAGE}"
+                    echo "Version  : ${env.APP_VERSION}"
+                    echo "Image Tag: ${env.IMAGE_TAG}"
+                    echo "Full Image: ${env.FULL_IMAGE}"
                 }
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh """
-                    docker build -t ${env.FULL_IMAGE} ./app/${env.APP_VERSION}
-                """
+                sh "docker build -t ${FULL_IMAGE} ./app/${APP_VERSION}"
+                echo "Docker image built: ${FULL_IMAGE}"
             }
         }
 
@@ -46,18 +48,37 @@ pipeline {
                 )]) {
                     sh """
                         echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
-                        docker push ${env.FULL_IMAGE}
+                        docker push ${FULL_IMAGE}
                         docker logout
                     """
                 }
+                echo "Image pushed to Docker Hub"
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
                 sh """
-                    kubectl set image deployment/${env.DEPLOYMENT_NAME} ${env.CONTAINER_NAME}=${env.FULL_IMAGE} -n ${env.K8S_NAMESPACE}
-                    kubectl rollout status deployment/${env.DEPLOYMENT_NAME} -n ${env.K8S_NAMESPACE}
+                    kubectl set image deployment/${DEPLOY_NAME} \
+                    ${CONTAINER}=${FULL_IMAGE} \
+                    -n ${K8S_NAMESPACE}
+
+                    kubectl rollout status deployment/${DEPLOY_NAME} \
+                    -n ${K8S_NAMESPACE} \
+                    --timeout=120s
+                """
+                echo "Deployment successful - Zero Downtime Rolling Update Done"
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh """
+                    echo "Current Pods:"
+                    kubectl get pods -n ${K8S_NAMESPACE}
+
+                    echo "Current Image:"
+                    kubectl get deployment ${DEPLOY_NAME} -n ${K8S_NAMESPACE} -o wide
                 """
             }
         }
@@ -65,10 +86,10 @@ pipeline {
 
     post {
         success {
-            echo "Deployment successful: ${env.FULL_IMAGE}"
+            echo "BUILD SUCCESSFUL - ShopEase ${APP_VERSION} is LIVE"
         }
         failure {
-            echo "Pipeline failed"
+            echo "BUILD FAILED - Check logs above"
         }
     }
 }
